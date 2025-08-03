@@ -89,12 +89,12 @@
                 font-family: 'Arial Black', Arial, sans-serif;
                 font-size: 1.2em;
                 ">
-                突破時間：
+                期待想定突破時間：
             </strong>
             <br>
     <div style="margin-left: 24px;">
       <small style="color: #666;">
-        各凸での想定突破時間（平均値）を入力してください。
+        各凸での想定突破時間（平均値）を入力してください。「およそ50分で通る凸」の場合は「50」と入力してください。あびらちゃんさんのツールでもこの数字は計算できます。
       </small>
     </div>
         `;
@@ -175,7 +175,7 @@
         const lambda = 1 / T;
         const probability = 1 - Math.exp(-lambda * D);
         
-        probLabel.textContent = `→ ${D}分以内突破確率: ${(probability * 100).toFixed(1)}%`;
+        probLabel.textContent = `→ この凸単体での${D}分以内に突破できる確率: ${(probability * 100).toFixed(1)}%`;
     }
 
     function updateAllProbabilities() {
@@ -231,7 +231,7 @@
       resultText += '\n';
       for (let k = 2; k <= 7; k++) {
         const ticketProb = 1 - Math.pow(1 - lastProb, k);
-        resultText += `${k}チケット以内で最終凸まで成功: ${(ticketProb * 100).toFixed(2)}%\n`;
+        resultText += `${k}チケットで最終凸まで成功: ${(ticketProb * 100).toFixed(2)}%\n`;
       }
 
       // チャートコンテナを先に取得

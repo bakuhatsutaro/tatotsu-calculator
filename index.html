@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Blue Archive Raid Time Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: auto;
+    }
+    input, button {
+      padding: 5px;
+      margin: 5px 0;
+      width: 100%;
+    }
+    .Totsu-container input {
+      width: 80px;
+      margin-right: 5px;
+    }
+    .results {
+      margin-top: 20px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+
+<p style="color: #555; margin-bottom: 16px;">
+    サークル外の使用を固く禁じます。<br>
+    許可なく使ったものは<span style="color: red; font-weight: bold;">末代まで呪われる</span>であろう。
+</p>
+
+<h2>多凸突破率計算機</h2>
+<div style="margin-bottom: 12px; font-family: 'Arial Black', Arial, sans-serif;">
+    <label for="D" style="font-size:1.2em;">チケット１枚あたり使用時間：</label>
+    <input type="number" id="D" value="60" min="1" onchange="updateAllProbabilities()" oninput="updateAllProbabilities()" style="width:80px; height:32px; font-size:1.6em; display:inline-block; margin-left:8px; text-align:center;">
+    <span>分</span>
+    <br>
+    <div style="margin-left: 24px;">
+      <small style="color: #666;">
+        チケロス回避を行う場合、そのための時間を引いてください。<br>
+        デフォルトではチケロス回避しないことを想定しています。
+      </small>
+    </div>
+</div>
+
+<div style="margin-bottom: 12px; font-family: 'Arial Black', Arial, sans-serif;">
+    <label for="n" style="font-size:1.2em;">凸数：</label>
+    <input type="number" id="n" value="3" min="1" onchange="updateTotsuInputs()" style="width:80px; height:32px; font-size:1.6em; display:inline-block; margin-left:8px; text-align:center;">
+</div>
+
+<div id="Totsu-container" class="Totsu-container" style="margin-bottom: 12px;"></div>
+
+<div style="display: flex; justify-content: center; align-items: center; margin-bottom: 12px;">
+    <button style="font-size: 1.6em; padding: 12px 32px;" onclick="runSimulation()">シミュレーション開始</button>
+</div>
+
+<div class="results" id="results"></div>
+<div id="charts-container" style="margin-top: 20px;"></div>
+
+<script>
+    const trials = 100000; // シミュレーション回数を戻す
+
+    function updateTotsuInputs() {
+        const n = parseInt(document.getElementById('n').value);
+        const container = document.getElementById('Totsu-container');
+
+        // 既存の値を退避
+        const savedValues = {};
+        for (let i = 1; i <= 20; i++) { // 20凸まで対応
+            const input = document.getElementById(`mean_${i}`);
+            if (input) {
+                savedValues[i] = input.value;
+            }
+        }
+
+        container.innerHTML = '';
+
+        // Add heading and supplementary text with matching style
+        const heading = document.createElement('div');
+        heading.innerHTML = `
+            <strong style="
+                font-family: 'Arial Black', Arial, sans-serif;
+                font-size: 1.2em;
+                ">
+                突破時間：
+            </strong>
+            <br>
+    <div style="margin-left: 24px;">
+      <small style="color: #666;">
+        各凸での想定突破時間（平均値）を入力してください。
+      </small>
+    </div>
+        `;
+        heading.style.marginBottom = '8px';
+        container.appendChild(heading);
+
+        for (let i = 1; i <= n; i++) {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.marginBottom = '4px';
+            row.style.marginLeft = '8px';
+
+            const label = document.createElement('label');
+            label.textContent = `${i}凸目：`;
+            label.style.fontFamily = "'Arial Black', Arial, sans-serif";
+            label.style.fontSize = '1.1em';
+            label.style.color = '#222';
+            label.style.marginRight = '8px';
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = savedValues[i] !== undefined ? savedValues[i] : '';
+            input.min = '0.1';
+            input.step = '0.1';
+            input.id = `mean_${i}`;
+            input.style.width = '80px';
+            input.style.height = '32px';
+            input.style.fontSize = '1.6em';
+            input.style.textAlign = 'center';
+            input.style.marginRight = '8px';
+
+            const unitLabel = document.createElement('span');
+            unitLabel.textContent = '分';
+            unitLabel.style.marginRight = '12px';
+            unitLabel.style.fontSize = '1.1em';
+
+            const probLabel = document.createElement('span');
+            probLabel.id = `prob_${i}`;
+            probLabel.style.fontSize = '1.0em';
+            probLabel.style.color = '#666';
+            probLabel.style.fontWeight = 'bold';
+
+            // 入力値変更時に確率を更新
+            input.addEventListener('input', function() {
+                updateProbability(i);
+            });
+
+            row.appendChild(label);
+            row.appendChild(input);
+            row.appendChild(unitLabel);
+            row.appendChild(probLabel);
+            container.appendChild(row);
+        }
+
+        // 初期確率表示を更新
+        setTimeout(() => {
+            for (let i = 1; i <= n; i++) {
+                updateProbability(i);
+            }
+        }, 0);
+    }
+
+    function updateProbability(totsuIndex) {
+        const D = parseFloat(document.getElementById('D').value) || 60;
+        const meanInput = document.getElementById(`mean_${totsuIndex}`);
+        const probLabel = document.getElementById(`prob_${totsuIndex}`);
+        
+        if (!meanInput || !probLabel) return;
+        
+        const T = parseFloat(meanInput.value);
+        if (isNaN(T) || T <= 0) {
+            probLabel.textContent = '';
+            return;
+        }
+        
+        // 指数分布での成功確率計算: 1 - exp(-lambda * D)
+        const lambda = 1 / T;
+        const probability = 1 - Math.exp(-lambda * D);
+        
+        probLabel.textContent = `→ ${D}分以内突破確率: ${(probability * 100).toFixed(1)}%`;
+    }
+
+    function updateAllProbabilities() {
+        const n = parseInt(document.getElementById('n').value) || 3;
+        for (let i = 1; i <= n; i++) {
+            updateProbability(i);
+        }
+    }
+
+    function exponentialSample(lambda) {
+      return -Math.log(1 - Math.random()) / lambda;
+    }
+
+    function runSimulation() {
+      const D = parseFloat(document.getElementById('D').value); // 制限時間
+      const n = parseInt(document.getElementById('n').value); // 凸数
+      const means = []; // デバッグ用：各凸の平均時間を格納する配列
+      for (let i = 1; i <= n; i++) {
+        const mean = parseFloat(document.getElementById(`mean_${i}`).value);
+        means.push(mean);
+      }
+
+      let roundSuccesses = Array(n).fill(0);
+      let sampleSums = Array(n).fill(0); // 各凸の生成時間の合計
+      let allSamples = Array(n).fill(null).map(() => []); // 各凸の全サンプルを保存
+
+      for (let t = 0; t < trials; t++) {
+        let cumulativeTime = 0; // 累積時間を追跡
+        for (let i = 0; i < n; i++) {
+          const lambda = 1 / means[i];
+          const sample = exponentialSample(lambda);
+          cumulativeTime += sample; // 累積時間に加算
+          const success = cumulativeTime <= D; // 累積時間で成功判定
+          if (success) roundSuccesses[i]++;
+          sampleSums[i] += sample;
+          allSamples[i].push(sample); // サンプルを保存
+        }
+      }
+
+      const roundProbs = roundSuccesses.map(count => count / trials);
+      const lastProb = roundProbs[n - 1];
+      const actualMeans = sampleSums.map(sum => sum / trials); // 実際の平均時間を計算
+
+      let resultText = '=== シミュレーション結果 ===\n';
+    resultText += `試行回数: ${trials.toLocaleString()}回\n`;
+      resultText += `1チケットあたり使用時間: ${D}分\n\n`;
+      
+      // 成功率を表示
+      roundProbs.forEach((p, i) => {
+        resultText += `${i + 1}凸目までが${D}分以内に成功する確率: ${(p * 100).toFixed(2)}% (${roundSuccesses[i]}/${trials}回)\n`;
+      });
+
+      resultText += '\n';
+      for (let k = 2; k <= 7; k++) {
+        const ticketProb = 1 - Math.pow(1 - lastProb, k);
+        resultText += `${k}チケット以内で最終凸まで成功: ${(ticketProb * 100).toFixed(2)}%\n`;
+      }
+
+      // チャートコンテナを先に取得
+      const chartsContainer = document.getElementById('charts-container');
+      chartsContainer.innerHTML = '';
+
+      // すべての凸の合計時間のヒストグラムを生成
+    const totalTimes = [];
+    for (let t = 0; t < trials; t++) {
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        sum += allSamples[i][t];
+      }
+      totalTimes.push(sum);
+    }
+
+    const maxTotalTime = Math.max(...totalTimes, D);
+    const binCountTotal = 30;
+    const binWidthTotal = maxTotalTime / binCountTotal;
+    const binsTotal = Array(binCountTotal).fill(0);
+
+    totalTimes.forEach(sample => {
+      const binIndex = Math.min(Math.floor(sample / binWidthTotal), binCountTotal - 1);
+      binsTotal[binIndex]++;
+    });
+
+    // Chart.js用のキャンバス要素を作成
+    const totalChartDiv = document.createElement('div');
+    totalChartDiv.style.marginBottom = '30px';
+    totalChartDiv.innerHTML = `
+      <h3>制限時間がない場合の全凸合計時間 (平均: ${(totalTimes.reduce((a, b) => a + b, 0) / trials).toFixed(2)}分)</h3>
+      <canvas id="chart-total" width="400" height="200"></canvas>
+    `;
+    chartsContainer.appendChild(totalChartDiv);
+
+    // Chart.jsでヒストグラムを描画
+    const ctxTotal = document.getElementById('chart-total').getContext('2d');
+    const labelsTotal = [];
+    const frequenciesTotal = [];
+    for (let b = 0; b < binCountTotal; b++) {
+      const binCenter = (b + 0.5) * binWidthTotal;
+      labelsTotal.push(binCenter.toFixed(1));
+      frequenciesTotal.push(binsTotal[b] / trials);
+    }
+
+    // Dの位置を探す
+    const deadlineIndex = Math.floor(D / binWidthTotal);
+
+    const chartTotal = new Chart(ctxTotal, {
+      type: 'bar',
+      data: {
+        labels: labelsTotal,
+        datasets: [{
+        label: '実測頻度',
+        data: frequenciesTotal,
+        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+        title: {
+          display: true,
+          text: `全凸合計時間: 実測分布`
+        },
+        legend: {
+          display: true
+        }
+        },
+        scales: {
+        x: {
+          title: {
+            display: true,
+            text: '合計時間 (分)'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '相対頻度'
+          },
+          beginAtZero: true
+        }
+        }
+      },
+      plugins: [{
+        afterDraw: function(chart) {
+          const ctx = chart.ctx;
+          const chartArea = chart.chartArea;
+          const xScale = chart.scales.x;
+          const yScale = chart.scales.y;
+          
+          // Dの位置を計算
+          const xPosition = xScale.getPixelForValue(deadlineIndex);
+          
+          // 縦線を描画
+          ctx.save();
+          ctx.strokeStyle = 'red';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([5, 5]); // 破線
+          ctx.beginPath();
+          ctx.moveTo(xPosition, chartArea.top);
+          ctx.lineTo(xPosition, chartArea.bottom);
+          ctx.stroke();
+          
+          // ラベルを描画
+          ctx.fillStyle = 'red';
+          ctx.font = 'bold 12px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(`制限時間: ${D}分`, xPosition, chartArea.top - 10);
+          ctx.restore();
+        }
+      }]
+    });
+
+      resultText += '\n=== 各凸の時間分布ヒストグラム ===\n';
+      
+      for (let i = 0; i < n; i++) {
+
+        // ヒストグラムのビン設定
+        const samples = allSamples[i];
+        const maxTime = Math.max(...samples);
+        const binCount = 20;
+        const binWidth = maxTime / binCount;
+        const bins = Array(binCount).fill(0);
+        
+        // サンプルをビンに分類
+        samples.forEach(sample => {
+          const binIndex = Math.min(Math.floor(sample / binWidth), binCount - 1);
+          bins[binIndex]++;
+        });
+        
+        // Chart.js用のキャンバス要素を作成
+        const chartDiv = document.createElement('div');
+        chartDiv.style.marginBottom = '30px';
+        chartDiv.innerHTML = `
+          <h3>制限時間がない場合の${i + 1}凸目の突破時間 (平均: ${means[i]}分)</h3>
+          <canvas id="chart-${i}" width="400" height="200"></canvas>
+        `;
+        chartsContainer.appendChild(chartDiv);
+        
+        // Chart.jsでヒストグラムを描画
+        const ctx = document.getElementById(`chart-${i}`).getContext('2d');
+        
+        // ビンのラベルとデータを準備
+        const labels = [];
+        const frequencies = [];
+        const theoreticalFreqs = [];
+        
+        for (let b = 0; b < binCount; b++) {
+          const binCenter = (b + 0.5) * binWidth;
+          labels.push(binCenter.toFixed(1));
+          frequencies.push(bins[b] / trials); // 相対頻度
+          
+          // 理論密度計算（指数分布のPDF）
+          const lambda = 1 / means[i];
+          const theoreticalDensity = lambda * Math.exp(-lambda * binCenter);
+          const theoreticalFreq = theoreticalDensity * binWidth;
+          theoreticalFreqs.push(theoreticalFreq);
+        }
+        
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: '実測頻度',
+              data: frequencies,
+              backgroundColor: 'rgba(54, 162, 235, 0.6)',
+              borderColor: 'rgba(54, 162, 235, 1)',
+              borderWidth: 1
+            }, {
+              label: '理論頻度 (指数分布)',
+              data: theoreticalFreqs,
+              type: 'line',
+              backgroundColor: 'rgba(255, 99, 132, 0.2)',
+              borderColor: 'rgba(255, 99, 132, 1)',
+              borderWidth: 2,
+              fill: false,
+              pointRadius: 3
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: `${i + 1}凸目: 実測 vs 理論分布`
+              },
+              legend: {
+                display: true
+              }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: '時間 (分)'
+                }
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: '相対頻度'
+                },
+                beginAtZero: true
+              }
+            }
+          }
+        });
+      }
+
+      document.getElementById('results').textContent = resultText;
+    }
+
+    // 初期表示設定
+    updateTotsuInputs();
+  </script>
+</body>
+</html>
